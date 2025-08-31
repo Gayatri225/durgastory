@@ -29,7 +29,7 @@ Once deployed, open: http://<EC2_PUBLIC_IP>/ (Terraform prints this as an output
    └─ terraform/            # EC2 + SG + outputs
       ├─ main.tf  ├─ providers.tf  ├─ variables.tf  └─ outputs.tf
 
-Tools
+Tools: 
 Git, Docker, Nginx, GitHub Actions, Amazon ECR, Amazon EC2, IAM, Security Groups, Terraform.
 
 How to trigger CD
