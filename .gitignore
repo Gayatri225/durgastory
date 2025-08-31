@@ -1,0 +1,19 @@
+infra/terraform/.terraform/
+infra/terraform/.terraform.lock.hcl
+infra/terraform/terraform.tfstate
+infra/terraform/terraform.tfstate.*
+infra/terraform/terraform.tfstate.backup
+infra/terraform/.terraform.tfstate.lock.info
+infra/terraform/crash.log
+infra/terraform/crash.*.log
+infra/terraform/*.tfvars
+infra/terraform/*.tfvars.json
+infra/terraform/*.tfplan
+infra/terraform/override.tf
+infra/terraform/override.tf.json
+infra/terraform/*_override.tf
+infra/terraform/*_override.tf.json
+
+# ---- Keys & sensitive files (Terraform) ----
+infra/terraform/ec2_key.pem
+infra/terraform/*.pem
