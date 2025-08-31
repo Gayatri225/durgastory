@@ -1,0 +1,112 @@
+name: ci-cd
+
+on:
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+
+env:
+  AWS_REGION: ap-south-1
+  ECR_REPO: durga-website
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t test-build .
+
+  push:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+      - id: acct
+        run: echo "ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)" >> $GITHUB_OUTPUT
+      - run: |
+          aws ecr describe-repositories --repository-names "$ECR_REPO" >/dev/null 2>&1 || \
+          aws ecr create-repository --repository-name "$ECR_REPO" >/dev/null
+      - uses: aws-actions/amazon-ecr-login@v2
+      - env:
+          ACCOUNT_ID: ${{ steps.acct.outputs.ACCOUNT_ID }}
+        run: |
+          set -e
+          IMAGE_SHA="${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}:${GITHUB_SHA}"
+          IMAGE_LATEST="${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}:latest"
+          echo "IMAGE_URI=$IMAGE_LATEST" >> $GITHUB_ENV
+          docker build -t "$IMAGE_SHA" .
+          docker tag "$IMAGE_SHA" "$IMAGE_LATEST"
+          docker push "$IMAGE_SHA"
+          docker push "$IMAGE_LATEST"
+
+  deploy:
+    needs: push
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Prepare SSH key
+        run: |
+          if [ -n "${{ secrets.EC2_SSH_KEY_B64 }}" ]; then
+            echo "${{ secrets.EC2_SSH_KEY_B64 }}" | base64 -d > key.pem
+          else
+            echo "${{ secrets.EC2_SSH_KEY }}" > key.pem
+            sed -i 's/\r$//' key.pem
+          fi
+          chmod 600 key.pem
+
+      - name: Compute image URI
+        id: img
+        run: |
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          echo "ACCOUNT_ID=$ACCOUNT_ID" >> $GITHUB_OUTPUT
+          echo "IMAGE_URI=${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}:latest" >> $GITHUB_OUTPUT
+
+      - name: Deploy on EC2 via SSH
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          AWS_REGION: ${{ env.AWS_REGION }}
+          ECR_REPO: ${{ env.ECR_REPO }}
+          IMAGE_URI: ${{ steps.img.outputs.IMAGE_URI }}
+        run: |
+          set -e
+          ssh -o StrictHostKeyChecking=no -i key.pem ec2-user@${EC2_HOST} "IMAGE='${IMAGE_URI}' AWS_REGION='${AWS_REGION}' ECR_REPO='${ECR_REPO}' bash -s" << 'EOF'
+            set -e
+            if ! command -v docker >/dev/null 2>&1; then
+              sudo dnf install -y docker
+              sudo systemctl enable --now docker
+              sudo usermod -aG docker ec2-user || true
+            fi
+            sudo systemctl stop docker || true
+            sudo rm -rf /var/lib/docker/* /var/lib/containerd/* || true
+            sudo systemctl start docker
+            sudo docker system prune -af --volumes || true
+            sudo rm -rf ~/awscliv2.zip ~/aws /var/lib/docker/tmp/* /root/.cache/* /var/tmp/* /tmp/* || true
+            sudo dnf clean all || true
+            sudo journalctl --vacuum-size=100M || true
+            if ! command -v aws >/dev/null 2>&1; then
+              curl -sS "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+              unzip -q -o awscliv2.zip
+              sudo ./aws/install || true
+              rm -rf awscliv2.zip aws || true
+            fi
+            ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+            aws ecr get-login-password --region "${AWS_REGION}" | sudo docker login --username AWS --password-stdin "${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+            sudo docker pull "${IMAGE}"
+            sudo docker rm -f durga || true
+            sudo docker run -d --name durga -p 80:80 "${IMAGE}"
+            sudo docker ps
+          EOF
