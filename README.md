@@ -19,7 +19,7 @@ Ops hygiene: secrets via GitHub, disk cleanup during deploy, least-privilege ECR
 
 Once deployed, open: http://<EC2_PUBLIC_IP>/ (Terraform prints this as an output).
 
-🗂 Repo structure
+🗂 Repo structure :
 .
 .
 ├─ site/                    # static HTML/CSS/JS (Durga story)
@@ -32,16 +32,16 @@ Once deployed, open: http://<EC2_PUBLIC_IP>/ (Terraform prints this as an output
 Tools: 
 Git, Docker, Nginx, GitHub Actions, Amazon ECR, Amazon EC2, IAM, Security Groups, Terraform.
 
-How to trigger CD
+How to trigger CD : 
 On push to main, the workflow builds the Docker image, ensures the ECR repo, pushes :latest and :<commit-sha>, then SSHes to EC2, prunes disk, logs in to ECR, pulls :latest, and restarts the Nginx container on port 80. The site is served at the instance’s public IP.
 
-Using It
+Using It : 
 Provision with Terraform (infra/terraform) to create EC2 and the security group.
 Add the four GitHub secrets listed above.
 Push to main (or run the workflow manually) to build and deploy.
 Open http://<EC2_PUBLIC_IP>/.
 
-Notes
+Notes : 
 We use the EC2 public IP (no Elastic IP). If the instance IP changes, update the EC2_HOST secret and push a small commit to redeploy.
 .gitignore excludes Terraform state and private keys.
 Clean up with terraform destroy when you’re done.
